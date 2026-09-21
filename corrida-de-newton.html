@@ -1,0 +1,700 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Corrida de Newton — Recreio Arcade</title>
+<style>
+/* ======================================================================
+   CORRIDA DE NEWTON  —  Recreio Arcade
+   Jogo de corrida lateral (estilo fliperama) com desafios de Física.
+   Tudo (HTML + CSS + JavaScript) está neste único arquivo.
+   ====================================================================== */
+
+:root{
+  --asfalto:#171426;      /* fundo escuro da máquina */
+  --neon:#39f0c8;         /* verde-água do painel */
+  --magenta:#ff3d8b;      /* destaque quente */
+  --amarelo:#ffd230;      /* pontuação */
+  --roxo:#2b2144;         /* caixas internas */
+  --erro:#ff5a5a;
+}
+
+*{box-sizing:border-box;}
+
+html,body{height:100%;}
+
+body{
+  margin:0;
+  padding:16px env(safe-area-inset-right,0) calc(16px + env(safe-area-inset-bottom,0)) env(safe-area-inset-left,0);
+  padding-top:calc(16px + env(safe-area-inset-top,0));
+  background:
+    radial-gradient(circle at 50% 0%, #2a2350 0%, #100d1c 70%);
+  color:#eae6ff;
+  font-family:"Courier New",Courier,monospace;
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+}
+
+/* O "gabinete" é a moldura da máquina de fliperama */
+.gabinete{
+  width:100%;
+  max-width:860px;
+  background:var(--asfalto);
+  border:4px solid var(--neon);
+  border-radius:10px;
+  box-shadow:0 0 0 4px #0b0917, 0 18px 40px rgba(0,0,0,.6);
+  padding:12px;
+}
+
+/* ---------- Placar de cima (HUD) ---------- */
+.hud{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:10px;
+}
+.hud div{
+  flex:1 1 110px;
+  background:var(--roxo);
+  border:2px solid #4a3a72;
+  padding:6px 8px;
+  font-size:13px;
+  letter-spacing:1px;
+}
+.hud b{
+  display:block;
+  font-size:17px;
+  color:var(--amarelo);
+  letter-spacing:2px;
+}
+.combo-aceso b{color:var(--magenta);}
+
+/* ---------- Área da tela ---------- */
+.tela{
+  position:relative;
+  width:100%;
+  aspect-ratio:16/9;
+  background:#090715;
+  border:3px solid #4a3a72;
+  overflow:hidden;
+}
+canvas{
+  display:block;
+  width:100%;
+  height:100%;
+  image-rendering:pixelated;          /* mantém o visual de pixel art */
+  image-rendering:crisp-edges;
+}
+/* Linhas horizontais imitando a tela de tubo antiga */
+.scanlines{
+  position:absolute; inset:0;
+  pointer-events:none;
+  background:repeating-linear-gradient(
+    to bottom, rgba(0,0,0,.28) 0 2px, rgba(0,0,0,0) 2px 4px);
+}
+
+/* ---------- Telas sobrepostas (início, pergunta, fim) ---------- */
+.painel{
+  position:absolute; inset:0;
+  display:none;                        /* o JavaScript liga e desliga */
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  gap:10px;
+  padding:16px;
+  background:rgba(9,7,21,.94);
+  text-align:center;
+  overflow:auto;
+}
+.painel.ativo{display:flex;}
+.painel h1{
+  margin:0;
+  font-size:clamp(20px,4.4vw,34px);
+  color:var(--neon);
+  letter-spacing:3px;
+  text-shadow:3px 3px 0 var(--magenta);
+}
+.painel p{margin:0; font-size:clamp(12px,2.6vw,15px); line-height:1.6; max-width:52ch;}
+
+.pergunta-titulo{
+  color:var(--amarelo);
+  font-size:clamp(13px,2.8vw,18px);
+  line-height:1.5;
+  margin:0;
+  max-width:56ch;
+}
+.alternativas{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:8px;
+  width:100%;
+  max-width:560px;
+}
+@media(min-width:620px){ .alternativas{grid-template-columns:1fr 1fr;} }
+
+button{
+  font-family:inherit;
+  font-size:14px;
+  letter-spacing:1px;
+  color:#eae6ff;
+  background:var(--roxo);
+  border:2px solid var(--neon);
+  padding:10px 12px;
+  cursor:pointer;
+  text-align:left;
+}
+button:hover{background:#3a2c5e;}
+button:focus-visible{outline:3px solid var(--amarelo); outline-offset:2px;}
+button:disabled{cursor:default; opacity:.85;}
+button.certa{background:#1c5d47; border-color:var(--neon);}
+button.errada{background:#5d1c28; border-color:var(--erro);}
+button.selecionada{outline:3px solid var(--amarelo); outline-offset:2px;}
+
+.botao-grande{
+  text-align:center;
+  background:var(--magenta);
+  border-color:#fff;
+  color:#12091c;
+  font-weight:bold;
+  padding:12px 26px;
+}
+.botao-grande:hover{background:#ff6ba6;}
+
+.explicacao{
+  background:var(--roxo);
+  border-left:5px solid var(--neon);
+  padding:10px 12px;
+  font-size:13px;
+  line-height:1.6;
+  text-align:left;
+  max-width:560px;
+}
+
+/* ---------- Controles de toque (celular) ---------- */
+.controles{
+  display:flex;
+  justify-content:center;
+  gap:14px;
+  margin-top:10px;
+}
+.controles button{
+  font-size:22px;
+  text-align:center;
+  padding:12px 26px;
+  border-radius:8px;
+  user-select:none;
+}
+.rodape{
+  margin-top:8px;
+  font-size:11px;
+  color:#9b91c4;
+  text-align:center;
+  letter-spacing:1px;
+}
+@media(prefers-reduced-motion:reduce){ *{transition:none !important;} }
+</style>
+</head>
+<body>
+
+<div class="gabinete">
+
+  <!-- Placar sempre visível -->
+  <div class="hud">
+    <div>Pontos <b id="hudPontos">0</b></div>
+    <div id="caixaCombo">Combo <b id="hudCombo">x1</b></div>
+    <div>Desafio <b id="hudProgresso">0/8</b></div>
+    <div>Velocidade <b id="hudVel">0 m/s</b></div>
+  </div>
+
+  <div class="tela">
+    <canvas id="tela" width="800" height="450"></canvas>
+    <div class="scanlines"></div>
+
+    <!-- Tela inicial -->
+    <div class="painel ativo" id="painelInicio">
+      <h1>Corrida de Newton</h1>
+      <p>Pilote o buggy pela pista, desvie dos cones e atravesse os portais de física.
+         Cada portal trava um desafio: acerte para ganhar impulso e aumentar o combo.</p>
+      <p>Setas ↑ ↓ mudam de faixa. Nas perguntas, setas ↑ ↓ escolhem a alternativa e Enter ou Espaço confirmam. Toque nos botões no celular.</p>
+      <button class="botao-grande" id="btComecar">Começar corrida</button>
+    </div>
+
+    <!-- Tela de pergunta -->
+    <div class="painel" id="painelPergunta">
+      <p class="pergunta-titulo" id="textoPergunta"></p>
+      <div class="alternativas" id="listaAlternativas"></div>
+      <div class="explicacao" id="explicacao" hidden></div>
+      <button class="botao-grande" id="btContinuar" hidden>Voltar à pista</button>
+    </div>
+
+    <!-- Tela final -->
+    <div class="painel" id="painelFim">
+      <h1>Bandeirada final</h1>
+      <p id="resumoFinal"></p>
+      <button class="botao-grande" id="btReiniciar">Correr de novo</button>
+    </div>
+  </div>
+
+  <!-- Botões para jogar no celular -->
+  <div class="controles">
+    <button id="btCima" aria-label="Subir uma faixa">▲</button>
+    <button id="btBaixo" aria-label="Descer uma faixa">▼</button>
+  </div>
+
+  <p class="rodape">Recreio Arcade · Física · Leis de Newton</p>
+</div>
+
+<script>
+/* ======================================================================
+   1. AS PERGUNTAS
+   Cada pergunta tem: enunciado, 4 alternativas, o índice da correta
+   (0 a 3) e uma explicação que aparece depois da resposta.
+   ====================================================================== */
+const PERGUNTAS = [
+  {
+    enunciado:"O ônibus freia de repente e os passageiros são jogados para a frente. Qual princípio explica isso?",
+    alternativas:[
+      "Princípio da inércia (1ª Lei de Newton)",
+      "Lei da ação e reação (3ª Lei)",
+      "Força de atrito estático",
+      "Conservação da carga elétrica"
+    ],
+    correta:0,
+    explicacao:"Pela 1ª Lei de Newton, um corpo em movimento tende a continuar em movimento retilíneo uniforme. O ônibus para, mas o corpo do passageiro continua seguindo em frente."
+  },
+  {
+    enunciado:"Um buggy de 400 kg recebe uma força resultante de 1200 N. Qual é a aceleração?",
+    alternativas:["0,33 m/s²","3 m/s²","480 m/s²","12 m/s²"],
+    correta:1,
+    explicacao:"A 2ª Lei de Newton diz que F = m · a. Logo a = F / m = 1200 / 400 = 3 m/s²."
+  },
+  {
+    enunciado:"Ao empurrar uma parede, sua mão sente a parede empurrando de volta. Essas duas forças...",
+    alternativas:[
+      "têm mesma intensidade, mesma direção e sentidos opostos, em corpos diferentes",
+      "se anulam, porque agem no mesmo corpo",
+      "têm intensidades diferentes: a maior é a da mão",
+      "só existem se a parede se mover"
+    ],
+    correta:0,
+    explicacao:"É a 3ª Lei de Newton. O par ação-reação tem a mesma intensidade e sentidos opostos, mas atua em corpos diferentes — por isso nunca se anula."
+  },
+  {
+    enunciado:"Por que os pneus do buggy conseguem fazer a curva sem deslizar?",
+    alternativas:[
+      "Porque o peso do carro desaparece na curva",
+      "Por causa do atrito entre os pneus e o asfalto",
+      "Porque a inércia empurra o carro para dentro da curva",
+      "Porque o ar comprime o carro contra o chão"
+    ],
+    correta:1,
+    explicacao:"O atrito entre pneu e asfalto fornece a força centrípeta necessária para mudar a direção do movimento. Sem atrito, o carro seguiria em linha reta."
+  },
+  {
+    enunciado:"Um carro percorre 180 km em 2 horas. Qual é a velocidade média?",
+    alternativas:["360 km/h","60 km/h","90 km/h","45 km/h"],
+    correta:2,
+    explicacao:"Velocidade média = distância ÷ tempo = 180 km ÷ 2 h = 90 km/h (o equivalente a 25 m/s)."
+  },
+  {
+    enunciado:"No Sistema Internacional, 1 newton (N) equivale a:",
+    alternativas:["1 kg · m/s²","1 kg · m/s","1 kg/m²","1 J · s"],
+    correta:0,
+    explicacao:"Como F = m · a, a unidade de força é massa (kg) vezes aceleração (m/s²). Então 1 N = 1 kg · m/s²."
+  },
+  {
+    enunciado:"Aceleração é, por definição:",
+    alternativas:[
+      "a distância percorrida em cada segundo",
+      "a variação da velocidade dividida pelo tempo",
+      "a força aplicada dividida pela distância",
+      "a velocidade máxima que um corpo alcança"
+    ],
+    correta:1,
+    explicacao:"Aceleração mede o quanto a velocidade muda por unidade de tempo: a = Δv / Δt. Ela existe tanto ao acelerar quanto ao frear."
+  },
+  {
+    enunciado:"Dois carrinhos recebem a mesma força. O de 200 kg e o de 800 kg. O que acontece?",
+    alternativas:[
+      "Os dois aceleram igual, pois a força é a mesma",
+      "O de 800 kg acelera mais, por ter mais massa",
+      "O de 200 kg acelera quatro vezes mais",
+      "Nenhum acelera sem atrito"
+    ],
+    correta:2,
+    explicacao:"A massa mede a inércia. Com a mesma força, a = F/m: quanto maior a massa, menor a aceleração. 800 kg é 4× maior, então acelera 4× menos."
+  }
+];
+
+/* ======================================================================
+   2. ELEMENTOS DA PÁGINA E ESTADO DO JOGO
+   ====================================================================== */
+const tela   = document.getElementById("tela");
+const ctx    = tela.getContext("2d");
+ctx.imageSmoothingEnabled = false;   // deixa o desenho "quadradinho"
+
+const L = tela.width;   // 800
+const A = tela.height;  // 450
+
+const painelInicio   = document.getElementById("painelInicio");
+const painelPergunta = document.getElementById("painelPergunta");
+const painelFim      = document.getElementById("painelFim");
+
+const FAIXAS = [178, 258, 338];   // altura (y) de cada faixa da pista
+
+// Objeto único com todo o estado do jogo — facilita reiniciar
+let jogo, carro, obstaculos, portal, ultimoTempo;
+
+function novoJogo(){
+  jogo = {
+    estado:"correndo",     // correndo | pergunta | fim
+    pontos:0,
+    combo:0,               // acertos seguidos
+    indice:0,              // qual pergunta está valendo
+    acertos:0,
+    erros:0,
+    inicio:Date.now(),      // marca o começo da partida, para calcular duracao_s
+    velocidade:260,        // pixels por segundo (aumenta a cada acerto)
+    rolagem:0,             // usado para animar a pista
+    tempoObstaculo:1.1,    // contagem para soltar o próximo cone
+    tempoPortal:4.5,       // contagem para soltar o próximo portal
+    invulneravel:0,        // segundos de piscada após bater
+    tremor:0
+  };
+  carro = { faixa:1, y:FAIXAS[1], x:110 };
+  obstaculos = [];
+  portal = null;
+  atualizarHud();
+}
+
+/* ======================================================================
+   3. CONTROLES (teclado e toque)
+   ====================================================================== */
+function mudarFaixa(direcao){
+  if(jogo.estado !== "correndo") return;
+  carro.faixa = Math.min(2, Math.max(0, carro.faixa + direcao));
+}
+
+// Só o conjunto canônico chega ao jogo: setas, espaço, Enter (e Z/X, não usados aqui).
+// event.repeat é ignorado para o auto-repeat do sistema não virar metralhadora de eventos.
+document.addEventListener("keydown", (e)=>{
+  if(e.repeat) return;
+
+  if(jogo && jogo.estado === "pergunta"){
+    // Dentro da pergunta, as mesmas setas viram um cursor de menu
+    if(e.key === "ArrowUp")   moverSelecao(-1);
+    if(e.key === "ArrowDown") moverSelecao(1);
+    if(e.key === "Enter" || e.key === " ") confirmarSelecao();
+  }else{
+    if(e.key === "ArrowUp")   mudarFaixa(-1);
+    if(e.key === "ArrowDown") mudarFaixa(1);
+  }
+
+  // Espaço/Enter começa ou reinicia
+  if((e.key === " " || e.key === "Enter")){
+    if(painelInicio.classList.contains("ativo")) document.getElementById("btComecar").click();
+    else if(painelFim.classList.contains("ativo")) document.getElementById("btReiniciar").click();
+  }
+  if(["ArrowUp","ArrowDown"," "].includes(e.key)) e.preventDefault();
+});
+
+document.getElementById("btCima").addEventListener("click", ()=>mudarFaixa(-1));
+document.getElementById("btBaixo").addEventListener("click", ()=>mudarFaixa(1));
+
+/* ======================================================================
+   4. MOTOR DO JOGO — atualizar e desenhar 60 vezes por segundo
+   ====================================================================== */
+function atualizar(dt){
+  if(jogo.estado !== "correndo") return;
+
+  const v = jogo.velocidade;
+  jogo.rolagem += v * dt;
+  jogo.pontos  += v * dt * 0.02;              // ponto por distância
+  if(jogo.invulneravel > 0) jogo.invulneravel -= dt;
+  if(jogo.tremor > 0) jogo.tremor -= dt;
+
+  // o carro desliza suavemente até a faixa escolhida
+  const alvoY = FAIXAS[carro.faixa];
+  carro.y += (alvoY - carro.y) * Math.min(1, dt * 12);
+
+  // --- soltar cones ---
+  jogo.tempoObstaculo -= dt;
+  if(jogo.tempoObstaculo <= 0 && !portal){
+    obstaculos.push({ x:L + 40, faixa:Math.floor(Math.random()*3) });
+    jogo.tempoObstaculo = 0.7 + Math.random() * 0.6;
+  }
+
+  // --- soltar portal de pergunta ---
+  jogo.tempoPortal -= dt;
+  if(jogo.tempoPortal <= 0 && !portal && jogo.indice < PERGUNTAS.length){
+    portal = { x:L + 60 };
+    jogo.tempoPortal = 999;                    // só volta a contar depois da resposta
+  }
+
+  // --- mover e testar os cones ---
+  for(let i = obstaculos.length - 1; i >= 0; i--){
+    const o = obstaculos[i];
+    o.x -= v * dt;
+    const mesmaFaixa = Math.abs(FAIXAS[o.faixa] - carro.y) < 30;
+    const encostou   = o.x < carro.x + 52 && o.x + 30 > carro.x;
+    if(mesmaFaixa && encostou && jogo.invulneravel <= 0){
+      bateu();
+      obstaculos.splice(i,1);
+      continue;
+    }
+    if(o.x < -50) obstaculos.splice(i,1);
+  }
+
+  // --- mover o portal: quando alcança o carro, trava a pergunta ---
+  if(portal){
+    portal.x -= v * dt;
+    if(portal.x <= carro.x + 30){
+      portal = null;
+      abrirPergunta();
+    }
+  }
+  atualizarHud();
+}
+
+function bateu(){
+  jogo.combo = 0;
+  jogo.pontos = Math.max(0, jogo.pontos - 40);
+  jogo.velocidade = Math.max(220, jogo.velocidade - 30);
+  jogo.invulneravel = 1.3;                     // fica piscando e não bate de novo
+  jogo.tremor = 0.25;
+}
+
+/* ---------- desenho ---------- */
+function px(x,y,w,h,cor){ ctx.fillStyle = cor; ctx.fillRect(x|0, y|0, w|0, h|0); }
+
+function desenhar(){
+  const sacode = jogo.tremor > 0 ? (Math.random()*6 - 3) : 0;
+  ctx.save();
+  ctx.translate(sacode, sacode);
+
+  // céu e montanhas com efeito de profundidade (parallax)
+  px(0,0,L,150,"#1b1038");
+  for(let i=0;i<26;i++){
+    const ex = (i*97 - jogo.rolagem*0.08) % (L+40);
+    px(ex < 0 ? ex + L + 40 : ex, 14 + (i*37)%110, 3, 3, "#6f63b5");
+  }
+  const desloc = jogo.rolagem * 0.15;
+  for(let m=0;m<6;m++){
+    let mx = (m*180 - desloc) % (L+220);
+    if(mx < -220) mx += L + 220;
+    for(let k=0;k<9;k++) px(mx + k*10, 150 - k*9, 100 - k*10, 9, k%2 ? "#3a2c6b" : "#463483");
+  }
+
+  // pista
+  px(0,150,L,A-150,"#221a3a");
+  px(0,150,L,8,"#ff3d8b");
+  px(0,A-12,L,12,"#ff3d8b");
+  // faixas tracejadas que correm para a esquerda
+  for(const y of [218, 298]){
+    for(let i=0;i<20;i++){
+      let fx = (i*60 - jogo.rolagem % 60);
+      px(fx, y, 34, 5, "#5d4b96");
+    }
+  }
+
+  // portal de pergunta (dois postes com raios)
+  if(portal){
+    px(portal.x, 150, 12, A-162, "#39f0c8");
+    px(portal.x+16, 150, 4, A-162, "#ffd230");
+    for(let i=0;i<7;i++) px(portal.x - 8, 168 + i*40, 8, 14, i%2 ? "#ffd230" : "#39f0c8");
+  }
+
+  // cones de obra
+  for(const o of obstaculos){
+    const y = FAIXAS[o.faixa];
+    px(o.x, y+6, 30, 8, "#3a2c6b");
+    px(o.x+6, y-12, 18, 20, "#ff7a2f");
+    px(o.x+6, y-4, 18, 5, "#ffe9d0");
+    px(o.x+10, y-22, 10, 10, "#ff7a2f");
+  }
+
+  // buggy do jogador (pisca quando está invulnerável)
+  const piscando = jogo.invulneravel > 0 && Math.floor(jogo.invulneravel*12) % 2 === 0;
+  if(!piscando) desenharCarro(carro.x, carro.y);
+
+  ctx.restore();
+
+  // aviso de combo desenhado na própria tela
+  if(jogo.combo >= 2){
+    ctx.fillStyle = "#ff3d8b";
+    ctx.font = "bold 26px Courier New";
+    ctx.fillText("COMBO x" + (jogo.combo + 1), 24, 44);
+  }
+}
+
+function desenharCarro(x,y){
+  px(x,      y-14, 52, 26, "#39f0c8");   // chassi
+  px(x+8,    y-22, 26, 10, "#1c7e6c");   // capô
+  px(x+12,   y-20, 18,  6, "#d9fff6");   // vidro
+  px(x+2,    y+10, 14,  8, "#141024");   // roda traseira
+  px(x+34,   y+10, 14,  8, "#141024");   // roda dianteira
+  px(x+46,   y-8,   8, 12, "#ffd230");   // farol
+  // fogo do escapamento
+  const f = Math.random() * 10;
+  px(x-10-f, y-6, 10+f, 6, "#ff3d8b");
+  px(x-6,    y-4,  6, 3, "#ffd230");
+}
+
+/* ======================================================================
+   5. PERGUNTAS NA TELA
+   ====================================================================== */
+const textoPergunta = document.getElementById("textoPergunta");
+const listaAlt      = document.getElementById("listaAlternativas");
+const caixaExplic   = document.getElementById("explicacao");
+const btContinuar   = document.getElementById("btContinuar");
+
+let selecaoAtual = 0;   // índice da alternativa marcada pelo cursor (setas ↑ ↓)
+
+function abrirPergunta(){
+  jogo.estado = "pergunta";
+  const p = PERGUNTAS[jogo.indice];
+  selecaoAtual = 0;
+
+  textoPergunta.textContent = "Desafio " + (jogo.indice+1) + " de " + PERGUNTAS.length + " — " + p.enunciado;
+  listaAlt.innerHTML = "";
+  caixaExplic.hidden = true;
+  btContinuar.hidden = true;
+
+  p.alternativas.forEach((texto, i)=>{
+    const b = document.createElement("button");
+    b.textContent = (i+1) + ") " + texto;
+    // O clique continua funcionando para toque/mouse; a resposta é a mesma função do teclado.
+    b.addEventListener("click", ()=>{ selecaoAtual = i; confirmarSelecao(); });
+    listaAlt.appendChild(b);
+  });
+
+  destacarSelecao();
+  painelPergunta.classList.add("ativo");
+}
+
+function destacarSelecao(){
+  const botoes = listaAlt.querySelectorAll("button");
+  botoes.forEach((b, i) => b.classList.toggle("selecionada", i === selecaoAtual));
+}
+
+function moverSelecao(direcao){
+  const total = listaAlt.querySelectorAll("button").length;
+  if(!total) return;
+  selecaoAtual = (selecaoAtual + direcao + total) % total;
+  destacarSelecao();
+}
+
+function confirmarSelecao(){
+  if(jogo.estado !== "pergunta") return;
+  const botoes = listaAlt.querySelectorAll("button");
+  const botao = botoes[selecaoAtual];
+  if(!botao || botao.disabled) return;
+  responder(selecaoAtual, botao);
+}
+
+function responder(escolha, botao){
+  const p = PERGUNTAS[jogo.indice];
+  const botoes = listaAlt.querySelectorAll("button");
+  botoes.forEach(b => { b.disabled = true; b.classList.remove("selecionada"); });
+  botoes[p.correta].classList.add("certa");
+
+  if(escolha === p.correta){
+    jogo.acertos++;
+    jogo.combo++;
+    jogo.pontos += 100 * Math.min(jogo.combo, 5);   // combo multiplica os pontos
+    jogo.velocidade += 26;                           // acertou, o buggy acelera
+    caixaExplic.textContent = "Acertou! " + p.explicacao;
+  }else{
+    botao.classList.add("errada");
+    jogo.erros++;
+    jogo.combo = 0;
+    jogo.velocidade = Math.max(220, jogo.velocidade - 20);
+    caixaExplic.textContent = "Não foi dessa vez. " + p.explicacao;
+  }
+
+  caixaExplic.hidden = false;
+  btContinuar.hidden = false;
+  btContinuar.focus();
+  atualizarHud();
+}
+
+btContinuar.addEventListener("click", ()=>{
+  painelPergunta.classList.remove("ativo");
+  jogo.indice++;
+  if(jogo.indice >= PERGUNTAS.length){
+    terminar();
+  }else{
+    jogo.estado = "correndo";
+    jogo.tempoPortal = 5.0;      // volta a contar até o próximo portal
+    obstaculos = [];
+  }
+});
+
+/* ======================================================================
+   6. FIM DE JOGO E ENVIO DO PLACAR
+   ====================================================================== */
+function terminar(){
+  jogo.estado = "fim";
+  const pontos = Math.round(jogo.pontos);
+  const duracao_s = Math.round((Date.now() - jogo.inicio) / 1000);
+
+  document.getElementById("resumoFinal").textContent =
+    "Pontuação: " + pontos + " · Acertos: " + jogo.acertos + " de " + PERGUNTAS.length +
+    " · Velocidade final: " + Math.round(jogo.velocidade/10) + " m/s";
+
+  painelFim.classList.add("ativo");
+
+  // Formato oficial do contrato Recreio Arcade (ScoreMessage): o jogo não sabe
+  // o apelido do jogador nem o guarda — quem cuida disso é a plataforma local (G3).
+  const placar = {
+    tipo:"PLACAR",
+    jogo:"corrida-de-newton",
+    versao:"1.0.0",
+    pontos:pontos,
+    duracao_s:duracao_s,
+    acertos:jogo.acertos,
+    erros:jogo.erros,
+    tema:"Física"
+  };
+  try{ window.parent.postMessage(placar, "*"); }catch(e){ console.log("Placar:", placar); }
+}
+
+/* ======================================================================
+   7. PLACAR DO TOPO, BOTÕES E LAÇO PRINCIPAL
+   ====================================================================== */
+function atualizarHud(){
+  document.getElementById("hudPontos").textContent    = Math.round(jogo.pontos);
+  document.getElementById("hudCombo").textContent     = "x" + (jogo.combo + 1);
+  document.getElementById("hudProgresso").textContent = jogo.indice + "/" + PERGUNTAS.length;
+  document.getElementById("hudVel").textContent       = Math.round(jogo.velocidade/10) + " m/s";
+  document.getElementById("caixaCombo").classList.toggle("combo-aceso", jogo.combo >= 2);
+}
+
+document.getElementById("btComecar").addEventListener("click", ()=>{
+  painelInicio.classList.remove("ativo");
+  novoJogo();
+});
+
+document.getElementById("btReiniciar").addEventListener("click", ()=>{
+  painelFim.classList.remove("ativo");
+  novoJogo();
+});
+
+function laco(tempo){
+  if(!ultimoTempo) ultimoTempo = tempo;
+  const dt = Math.min(0.05, (tempo - ultimoTempo)/1000);   // segundos desde o quadro anterior
+  ultimoTempo = tempo;
+
+  atualizar(dt);
+  desenhar();
+  requestAnimationFrame(laco);
+}
+
+novoJogo();
+jogo.estado = "pergunta";        // fica parado enquanto a tela inicial está aberta
+requestAnimationFrame(laco);
+</script>
+</body>
+</html>
